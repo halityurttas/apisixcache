@@ -1,0 +1,32 @@
+@layout()
+  <div class="auth-shell">
+    <div class="auth-card">
+      <div class="auth-head">
+        <div class="brand">
+          <span class="brand-mark">AC</span>
+          <span class="brand-name">Apisix Cache</span>
+        </div>
+        <h1>Welcome back</h1>
+        <p>Sign in to manage your caching rules.</p>
+      </div>
+
+      @form({ route: 'session.store', method: 'POST' })
+        <div class="auth-form">
+          @field.root({ name: 'email' })
+            @!field.label({ text: 'Email' })
+            @!input.control({ type: 'email', placeholder: 'you@example.com' })
+            @!field.error()
+          @end
+
+          @field.root({ name: 'password' })
+            @!field.label({ text: 'Password' })
+            @!input.control({ type: 'password', placeholder: '••••••••' })
+            @!field.error()
+          @end
+
+          <button type="submit">Sign in</button>
+        </div>
+      @end
+    </div>
+  </div>
+@end

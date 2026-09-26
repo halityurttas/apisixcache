@@ -1,0 +1,72 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.13
+    environment:
+      ETCD_NAME: etcd
+      ETCD_DATA_DIR: /etcd-data
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+      ETCD_INITIAL_CLUSTER: etcd=http://etcd:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: apisix-etcd
+    volumes:
+      - etcd-data:/etcd-data
+    ports:
+      - "2379:2379"
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - apisix-cache
+
+  apisix:
+    build:
+      context: ./docker/apisix
+    depends_on:
+      etcd:
+        condition: service_healthy
+    ports:
+      - "9080:9080" # data plane (gateway)
+      - "9180:9180" # admin API
+    networks:
+      - apisix-cache
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    depends_on:
+      - apisix
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3333"
+      LOG_LEVEL: info
+      APP_KEY: ${APP_KEY:--NzOrlhIREhZrmyv0XD4d7W3g_efjRMj}
+      APP_URL: http://localhost:3333
+      SESSION_DRIVER: cookie
+      SESSION_SECURE: "false"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin12345}
+      APISIX_ADMIN_API_URL: http://apisix:9180/apisix/admin
+      APISIX_ADMIN_KEY: edd1c9f034335f136f87ad84b625c8f1
+      APISIX_GATEWAY_URL: http://apisix:9080
+      STATS_INGEST_URL: http://app:3333/api/stats/ingest
+      STATS_INGEST_TOKEN: ${STATS_INGEST_TOKEN:-oss-stats-token}
+    ports:
+      - "3333:3333"
+    volumes:
+      - ./data:/app/tmp
+    networks:
+      - apisix-cache
+
+networks:
+  apisix-cache:
+    driver: bridge
+
+volumes:
+  etcd-data:

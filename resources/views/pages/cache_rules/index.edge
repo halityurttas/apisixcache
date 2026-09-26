@@ -1,0 +1,73 @@
+@layout()
+  <div class="page">
+    <div class="page-header">
+      <div>
+        <h1>Cache Rules</h1>
+        <p>Each rule becomes an APISIX route with caching and rate limiting.</p>
+      </div>
+      <a class="cta-link" href="/rules/create">+ New Cache Rule</a>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h2>All Rules</h2>
+        <span class="meta">{{ rules.length }} configured</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Endpoint</th>
+              <th>Methods</th>
+              <th>TTL</th>
+              <th>Rate Limit</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @each(rule in rules)
+              <tr>
+                <td class="cell-name">{{ rule.name }}</td>
+                <td><code>{{ rule.endpointPattern }}</code></td>
+                <td>{{ rule.methods.join(', ') }}</td>
+                <td>{{ rule.ttlSeconds }}s</td>
+                <td>{{ rule.rateLimitRps ? rule.rateLimitRps + ' req/s' : '—' }}</td>
+                <td>
+                  @if(rule.isActive)
+                    <span class="badge badge-active">Active</span>
+                  @else
+                    <span class="badge badge-inactive">Inactive</span>
+                  @end
+                </td>
+                <td>
+                  <div class="row-actions">
+                    <a class="action-link" href="/rules/{{ rule.id }}/edit">Edit</a>
+                    @form({ route: 'cache_rules.purge', routeParams: { id: rule.id } })
+                      <button type="submit" class="btn-ghost">Purge</button>
+                    @end
+                    @form({ route: 'cache_rules.destroy', routeParams: { id: rule.id } })
+                      <button type="submit" class="btn-danger">Delete</button>
+                    @end
+                  </div>
+                </td>
+              </tr>
+            @else
+              <tr>
+                <td colspan="7">
+                  <div class="empty-state">
+                    <div class="empty-icon">+</div>
+                    <h3>No cache rules yet</h3>
+                    <p>Create your first rule to start caching upstream API calls.</p>
+                    <a class="cta-link" href="/rules/create">Create your first rule</a>
+                  </div>
+                </td>
+              </tr>
+            @end
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+@end

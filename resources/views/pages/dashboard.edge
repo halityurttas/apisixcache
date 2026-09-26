@@ -1,0 +1,78 @@
+@layout()
+  <div class="page">
+    <section class="dashboard-hero">
+      <div>
+        <h1>Dashboard</h1>
+        <p>Third-party API cost savings at a glance. Hit ratio is updated in real time by the APISIX data plane.</p>
+      </div>
+      <a class="dashboard-hero-cta" href="/rules/create">+ New Cache Rule</a>
+    </section>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label"><span class="stat-icon">Σ</span> Total Calls</span>
+        <span class="stat-value">{{ totalCalls }}</span>
+        <span class="stat-trend">across all rules</span>
+      </div>
+      <div class="stat-card hits">
+        <span class="stat-label"><span class="stat-icon">✓</span> Cache Hits</span>
+        <span class="stat-value">{{ totals.hits }}</span>
+        <span class="stat-trend">no upstream call</span>
+      </div>
+      <div class="stat-card misses">
+        <span class="stat-label"><span class="stat-icon">↻</span> Cache Misses</span>
+        <span class="stat-value">{{ totals.misses }}</span>
+        <span class="stat-trend">paid upstream calls</span>
+      </div>
+      <div class="stat-card rate">
+        <span class="stat-label"><span class="stat-icon">%</span> Hit Rate</span>
+        <span class="stat-value">{{ overallHitRate }}%</span>
+        <span class="stat-trend">cache effectiveness</span>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h2>Rules</h2>
+        <span class="meta">{{ rows.length }} configured</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Endpoint</th>
+              <th>TTL</th>
+              <th>Hits</th>
+              <th>Misses</th>
+              <th>Hit Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            @each(row in rows)
+              <tr>
+                <td class="cell-name">{{ row.rule.name }}</td>
+                <td><code>{{ row.rule.endpointPattern }}</code></td>
+                <td>{{ row.rule.ttlSeconds }}s</td>
+                <td>{{ row.hits }}</td>
+                <td>{{ row.misses }}</td>
+                <td>{{ row.hitRate }}%</td>
+              </tr>
+            @else
+              <tr>
+                <td colspan="6">
+                  <div class="empty-state">
+                    <div class="empty-icon">+</div>
+                    <h3>No cache rules yet</h3>
+                    <p>Create your first rule to start caching upstream API calls and see savings here.</p>
+                    <a class="cta-link" href="/rules/create">Create your first rule</a>
+                  </div>
+                </td>
+              </tr>
+            @end
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+@end

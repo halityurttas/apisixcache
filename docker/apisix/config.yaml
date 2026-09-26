@@ -1,0 +1,60 @@
+#
+# APISIX data plane configuration for the OSS "Apisix Cache" project.
+#
+# Defines the disk cache zone used by the `proxy-cache` plugin, the Admin API
+# key, and points APISIX at the bundled etcd instance.
+#
+
+apisix:
+  node_listen: 9080
+  enable_ipv6: false
+
+  enable_control: true
+  control:
+    ip: 0.0.0.0
+    port: 9090
+
+  enable_admin: true
+  enable_admin_cors: true
+  enable_dev_mode: false
+
+  router:
+    http: radixtree_uri
+
+  # Disk cache zone used by the proxy-cache plugin.
+  proxy_cache:
+    cache_ttl: 10s
+    zones:
+      - name: disk_cache_one
+        memory_size: "50m"
+        disk_size: "2g"
+        disk_path: /tmp/disk_cache_one
+        cache_levels: "1:2"
+
+deployment:
+  role: traditional
+  role_traditional:
+    config_provider: etcd
+
+  admin:
+    admin_key_required: true
+    admin_key:
+      - name: admin
+        key: edd1c9f034335f136f87ad84b625c8f1
+        role: admin
+    allow_admin:
+      - 0.0.0.0/0
+
+  etcd:
+    host:
+      - "http://etcd:2379"
+    prefix: /apisix
+    timeout: 30
+
+# Only the plugins required by this project are enabled.
+# NOTE: providing this list replaces the default plugin set, so every plugin
+# the gateway needs (custom + built-in) must be listed here.
+plugins:
+  - cache-normalizer
+  - proxy-cache
+  - limit-req
