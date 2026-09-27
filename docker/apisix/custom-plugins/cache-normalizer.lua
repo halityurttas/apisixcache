@@ -175,7 +175,9 @@ local function flush_stats()
             status = status,
             count = count,
           })
-          dict:set(key, 0)
+          -- Subtract instead of resetting to 0: increments that land between
+          -- the get above and this call are kept for the next window.
+          dict:incr(key, -count)
         end
       end
     end

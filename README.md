@@ -74,8 +74,8 @@ This is the **open-source, single-tenant** edition.
 | 🎯 **Body / query normalization** | The cache key is built only from the query and JSON body fields you choose. |
 | 🔒 **Cache lock (single flight)** | Stops a thundering herd from reaching the upstream on a cache miss. |
 | 🚦 **Rate limiting** | Optional per-client-IP limit in requests per second (`429` when exceeded). |
-| 🧹 **On-demand purge** | Remove a cached response from the UI with one click. |
-| 📊 **Hit / miss dashboard** | The gateway reports cache status back to the control plane in real time. |
+| 🧹 **One-click purge** | Invalidate every cached entry of a rule at once, on every gateway node (generation-based). |
+| 📊 **Hit / miss dashboard** | The gateway buffers cache status in shared memory and reports it to the control plane in batches. |
 | 🗄️ **SQLite** | A single file with nothing to configure. |
 | 🐳 **One-command setup** | `docker compose up` starts etcd, APISIX and the control plane. |
 
@@ -85,14 +85,14 @@ This is the **open-source, single-tenant** edition.
                          ┌───────────────────────────── data plane ─────────────────────────────┐
                          │                                                                      │
  [Client app] ─────────► │  APISIX :9080                                                        │
-       ▲                 │   ├─ cache-normalizer  → builds $normalized_cache_key                │
+       ▲                 │   ├─ cache-normalizer  → $normalized_cache_key + $cache_generation   │
        │                 │   ├─ limit-req         → optional rate limit                         │
        │                 │   └─ proxy-cache       → disk cache ──(miss)──► External API         │
        │   HIT / MISS    │                                               (Google Maps, …)       │
        └──────────────── │                                                                      │
                          └───────────▲───────────────────────────────┬──────────────────────────┘
-                                     │ Admin API :9180                │ hit/miss reports
-                                     │ (routes, plugins)              ▼
+                                     │ Admin API :9180                │ batched hit/miss
+                                     │ (routes, plugins)              ▼ reports (every 5 s)
  [Browser] ────────────────────────► AdonisJS control plane :3333 + SQLite
                                      (rules, TTL, purge, stats)
 ```
@@ -108,12 +108,13 @@ This is the **open-source, single-tenant** edition.
 **Requirements:** Docker and Docker Compose v2.
 
 ```bash
-git clone https://github.com/<your-org>/apisixcache.git
+git clone https://github.com/halityurttas/apisixcache.git
 cd apisixcache
 
 # Optional: override the defaults
 export ADMIN_EMAIL=admin@example.com
 export ADMIN_PASSWORD=change-me-please
+export APISIX_ADMIN_KEY=$(openssl rand -hex 16)
 
 docker compose up --build
 ```
@@ -121,11 +122,18 @@ docker compose up --build
 On first boot the app container runs the database migrations and seeds the
 admin account. Both steps are idempotent, so restarting is safe.
 
+`APISIX_ADMIN_KEY` is passed to both APISIX (`config.yaml` reads it from the
+environment) and the control plane, so the two sides always use the same key.
+
 | Service | URL |
 |---|---|
 | Control plane (UI) | http://localhost:3333 |
 | APISIX gateway (send your API traffic here) | http://localhost:9080 |
-| APISIX Admin API | http://localhost:9180 |
+| APISIX Admin API (host-local only) | http://127.0.0.1:9181 |
+
+The Admin API (container port `9180`) and etcd (`2379`) are bound to
+`127.0.0.1` only. Port `9181` is used on the host because `9180` is often
+already taken.
 
 > If you did not set `ADMIN_PASSWORD`, the default Docker login is
 > `admin@example.com` / `admin12345`. Change it before exposing the service.
@@ -168,17 +176,19 @@ Look at the `Apisix-Cache-Status` response header (`MISS` → `HIT`). The
    `cache-rule-<id>`) with up to three plugins:
    - **`cache-normalizer`** (custom Lua, priority 2500): reads the query
      string and/or JSON body, keeps only the configured fields, sorts them
-     and produces a deterministic `$normalized_cache_key`.
+     and produces a deterministic `$normalized_cache_key`. It also exposes
+     the rule's `$cache_generation`.
    - **`limit-req`**: optional per-IP rate limiting (burst = 2 × rate).
    - **`proxy-cache`**: disk cache using the key
-     `["$uri", "$normalized_cache_key"]`. Status codes `200`, `301` and `302`
-     are cached.
+     `["$uri", "$normalized_cache_key", "$cache_generation"]`. Status codes
+     `200`, `301` and `302` are cached.
 2. On a **cache miss** with cache lock enabled, only one request reaches the
    upstream. The others wait and receive the same response.
-3. In the `log` phase the normalizer reports `HIT`/`MISS` to the control plane
-   (`POST /api/stats/ingest`, authenticated with `X-Stats-Token`), which
-   updates the dashboard counters. `STALE`/`UPDATING` count as hits;
-   `EXPIRED`/`BYPASS` count as misses.
+3. In the `log` phase the normalizer increments a `<rule_id>:<status>`
+   counter in the `stats_buffer` shared dict (no network call on the request
+   path). A timer in each worker flushes the counters every 5 seconds as one
+   batched `POST /api/stats/ingest` (authenticated with `X-Stats-Token`).
+   `STALE`/`UPDATING` count as hits; `EXPIRED`/`BYPASS` count as misses.
 
 ### Normalization example
 
@@ -194,17 +204,30 @@ Leave the field lists empty to use the full query string or body.
 
 ### Purging
 
-The **Purge** button sends an HTTP `PURGE` request to the gateway, which
-removes the cached response for that endpoint immediately.
+The **Purge** button invalidates **every** cached entry of a rule at once. It
+does not delete anything. Instead it:
 
-- The APISIX route accepts the rule's methods **plus** `PURGE`.
-  `proxy-cache` intercepts `PURGE` and deletes the matching disk entry. It
-  returns `404` if there was nothing cached.
-- **`$host` is left out of the cache key on purpose.** The control plane
-  purges through the internal hostname (`apisix:9080`) while clients use the
-  public host, so including `$host` would produce a different key and purge
-  would never match.
-- Purge targets the endpoint as called **without** query/body parameters.
+1. increments the rule's `generation` column,
+2. re-syncs the route, so the new value reaches every APISIX node through
+   etcd.
+
+Because `$cache_generation` is part of the cache key, all old entries (every
+query/body combination) stop matching immediately and the next request is a
+`MISS`. The old files stay on disk until their TTL expires or the cache
+zone's size limit evicts them.
+
+A few details:
+
+- **`$host` is left out of the cache key on purpose**, so clients reaching
+  the gateway under different hostnames (public host vs. `apisix:9080`
+  inside Docker) share the same entries.
+- The route still accepts `PURGE` on top of the rule's methods. Use it to
+  remove **one** entry by sending the same query/body as the cached request:
+
+  ```bash
+  curl -i -X PURGE "http://localhost:9080/maps/api/geocode/json?address=Istanbul"
+  # 200 = entry removed, 404 = nothing was cached for that key
+  ```
 
 ### Enabling, disabling, deleting
 
@@ -227,15 +250,18 @@ All settings come from environment variables (see [.env.example](.env.example)).
 | `ADMIN_PASSWORD` | `admin12345` | Password of the seeded admin account |
 | `SESSION_SECURE` | `false` | Set to `true` only when the UI is served over HTTPS |
 | `APISIX_ADMIN_API_URL` | `http://apisix:9180/apisix/admin` | APISIX Admin API base URL |
-| `APISIX_ADMIN_KEY` | APISIX default key | Admin API key. Must match `docker/apisix/config.yaml`. |
-| `APISIX_GATEWAY_URL` | `http://apisix:9080` | Gateway URL the control plane uses to send purges |
+| `APISIX_ADMIN_KEY` | APISIX default key | Admin API key, shared by APISIX and the control plane. **Set your own.** |
+| `APISIX_GATEWAY_URL` | `http://apisix:9080` | Gateway base URL (required by the env schema; not used by purge any more) |
 | `STATS_INGEST_URL` | `http://app:3333/api/stats/ingest` | Where the gateway sends hit/miss reports |
 | `STATS_INGEST_TOKEN` | `oss-stats-token` | Shared secret for the stats endpoint |
 | `PORT` / `HOST` | `3333` / `0.0.0.0` | HTTP listen address of the control plane |
 | `LOG_LEVEL` | `info` | Pino log level |
 
-The APISIX disk cache zone (`disk_cache_one`: 50 MB of keys in memory, 2 GB
-on disk) is defined in [docker/apisix/config.yaml](docker/apisix/config.yaml).
+[docker/apisix/config.yaml](docker/apisix/config.yaml) defines two things:
+
+- the disk cache zone `disk_cache_one`: 50 MB of keys in memory, 2 GB on disk,
+  stored in the `apisix-cache-data` volume,
+- the `stats_buffer` shared dict (10 MB) that buffers telemetry.
 
 ## 💻 Local development
 
@@ -282,7 +308,7 @@ npm run dev                 # http://localhost:3333
 │   │   └── apisix_service.ts   # The only bridge to the APISIX Admin API
 │   └── validators/         # VineJS validation for cache rules
 ├── database/
-│   ├── migrations/         # users, cache_rules, cache_stats
+│   ├── migrations/         # users, cache_rules (+ generation), cache_stats
 │   └── seeders/            # Seeds the single admin account
 ├── docker/
 │   ├── apisix/
@@ -301,10 +327,11 @@ expose this anywhere:
 
 - [ ] Generate a new **`APP_KEY`** (`node ace generate:key`).
 - [ ] Change **`ADMIN_PASSWORD`** to a strong password.
-- [ ] Replace the **APISIX admin key** in `docker/apisix/config.yaml` *and*
-      `APISIX_ADMIN_KEY`. The bundled key is APISIX's publicly known default.
-- [ ] Narrow `allow_admin` in `config.yaml` (it is `0.0.0.0/0` by default) and
-      **do not publish** ports `9180` (Admin API) and `2379` (etcd).
+- [ ] Set **`APISIX_ADMIN_KEY`**. The fallback value is APISIX's publicly
+      known default key.
+- [ ] Keep the Admin API and etcd off the public network. Compose binds them
+      to `127.0.0.1`, and `allow_admin` only accepts `172.16.0.0/12` (the
+      Docker network). Adjust both if your network layout differs.
 - [ ] Set a random **`STATS_INGEST_TOKEN`**.
 - [ ] Put the UI behind HTTPS and set `SESSION_SECURE=true`.
 - [ ] Back up `./data` (SQLite database) and size the cache disk to your needs.
@@ -315,8 +342,9 @@ expose this anywhere:
 |---|---|
 | *"Rule saved locally, but syncing to APISIX failed"* | APISIX is not reachable or the admin key does not match. Check `APISIX_ADMIN_API_URL` / `APISIX_ADMIN_KEY` and `docker compose logs apisix`. |
 | Always `MISS`, never `HIT` | The upstream sets cookies or `Cache-Control: private/no-store`, returns a non-cacheable status, or a changing field (timestamp, request ID) is part of the key. Restrict the key with query/body fields. |
-| Purge returns `404` | Nothing was cached for that endpoint yet (or it has already expired). |
-| Dashboard counters stay at 0 | The gateway cannot reach `STATS_INGEST_URL`, or `STATS_INGEST_TOKEN` differs between the two sides. |
+| *"Purge failed"* | The control plane could not re-sync the route. Check the APISIX admin connection (same as above). |
+| Manual `PURGE` returns `404` | Nothing was cached for that exact key. Send the same query/body as the cached request. |
+| Dashboard counters stay at 0 | Counters are flushed every 5 s, so wait a moment. Otherwise the gateway cannot reach `STATS_INGEST_URL`, `STATS_INGEST_TOKEN` differs between the two sides, or `stats_buffer` is missing from `config.yaml` (see `docker compose logs apisix`). |
 | `429 Too Many Requests` | The rule's rate limit was exceeded. Raise or clear **Rate limit (req/s)**. |
 | Upstream receives the wrong `Host` header | Routes use `pass_host: node`, so the upstream host is taken from the Upstream URL. Make sure it is the real API host. |
 
@@ -335,8 +363,9 @@ all clients share cached answers.
 Yes. Hostnames without a TLD are accepted.
 
 **Where is the cache stored?**
-On the APISIX container's disk (`/tmp/disk_cache_one`). It is lost when the
-container is recreated. Mount a volume there if you want it to persist.
+At `/tmp/disk_cache_one` inside the APISIX container, backed by the
+`apisix-cache-data` Docker volume, so it survives container re-creation.
+`docker compose down -v` removes it.
 
 ## 🆚 OSS vs PRO
 
