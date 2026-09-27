@@ -43,12 +43,12 @@
                 </td>
                 <td>
                   <div class="row-actions">
-                    <a class="action-link" href="/rules/{{ rule.id }}/edit">Edit</a>
+                    <a class="btn btn-secondary btn-sm" href="/rules/{{ rule.id }}/edit">Edit</a>
                     @form({ route: 'cache_rules.purge', routeParams: { id: rule.id } })
-                      <button type="submit" class="btn-ghost">Purge</button>
+                      <button type="submit" class="btn btn-secondary btn-sm">Purge</button>
                     @end
                     @form({ route: 'cache_rules.destroy', routeParams: { id: rule.id } })
-                      <button type="submit" class="btn-danger">Delete</button>
+                      <button type="submit" class="btn btn-danger btn-sm">Delete</button>
                     @end
                   </div>
                 </td>
