@@ -413,3 +413,9 @@ limitations under the License.
 Apache®, Apache APISIX® and the APISIX logo are trademarks of The Apache
 Software Foundation. This project is not affiliated with or endorsed by The
 Apache Software Foundation.
+
+## ☁️ SaaS / Partnership
+
+A hosted **SaaS** edition of Apisix Cache is available. If you are interested
+in the SaaS version, or would like to become a business partner or reseller,
+get in touch at **halityurttas@gmail.com**.
