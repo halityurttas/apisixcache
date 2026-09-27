@@ -50,6 +50,14 @@ export default class CacheRule extends BaseModel {
   @column()
   declare isActive: boolean
 
+  /**
+   * Cache generation. Purge increments this value so that every cached entry
+   * for the rule becomes unreachable at once (the cache key includes the
+   * generation). Defaults to 1 at the database level.
+   */
+  @column()
+  declare generation: number
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

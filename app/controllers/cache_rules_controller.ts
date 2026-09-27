@@ -99,8 +99,8 @@ export default class CacheRulesController {
     session.flash(
       result.ok ? 'success' : 'error',
       result.ok
-        ? `Cache purged for "${rule.name}" (HTTP ${result.status}).`
-        : `Purge failed (HTTP ${result.status}). Make sure the gateway is reachable.`
+        ? `Cache purged for "${rule.name}" (generation ${rule.generation}).`
+        : 'Purge failed. Make sure APISIX is reachable.'
     )
     return response.redirect().toRoute('cache_rules.index')
   }

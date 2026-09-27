@@ -40,16 +40,25 @@ deployment:
     admin_key_required: true
     admin_key:
       - name: admin
-        key: edd1c9f034335f136f87ad84b625c8f1
+        # Injected from the environment so the control plane (AdonisJS) and
+        # the data plane always share a single source of truth for the key.
+        key: ${{APISIX_ADMIN_KEY:=edd1c9f034335f136f87ad84b625c8f1}}
         role: admin
     allow_admin:
-      - 0.0.0.0/0
+      # Restrict the Admin API to the Docker network only.
+      - 172.16.0.0/12
 
   etcd:
     host:
       - "http://etcd:2379"
     prefix: /apisix
     timeout: 30
+
+nginx_config:
+  http:
+    custom_lua_shared_dict:
+      # Buffer for batched hit/miss telemetry (see cache-normalizer.lua).
+      stats_buffer: 10m
 
 # Only the plugins required by this project are enabled.
 # NOTE: providing this list replaces the default plugin set, so every plugin

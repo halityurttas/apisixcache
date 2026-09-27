@@ -16,6 +16,11 @@ local cjson = require("cjson.safe")
 
 local plugin_name = "cache-normalizer"
 
+-- Telemetry batching: instead of one HTTP call per request, hit/miss counts
+-- are accumulated in a shared dict and flushed periodically in bulk.
+local STATS_DICT = "stats_buffer"
+local STATS_FLUSH_INTERVAL = 5 -- seconds
+
 local schema = {
   type = "object",
   properties = {
@@ -32,6 +37,7 @@ local schema = {
     },
     stats_endpoint = { type = "string" },
     stats_token = { type = "string" },
+    generation = { type = "integer", minimum = 1 },
   },
   required = { "rule_id" },
 }
@@ -137,6 +143,96 @@ function _M.rewrite(conf, ctx)
 
   local raw = query_part .. "|" .. body_part
   ctx.var.normalized_cache_key = ngx.md5(raw)
+
+  -- Generation stamp consumed by proxy-cache's cache_key. The control plane
+  -- bumps the generation to invalidate every cached entry for this rule at
+  -- once, without needing a parameter-specific purge.
+  ctx.var.cache_generation = tostring(conf.generation or 1)
+end
+
+local function flush_stats()
+  local dict = ngx.shared[STATS_DICT]
+  if not dict then
+    return
+  end
+
+  local endpoint = dict:get("__endpoint")
+  if not endpoint then
+    return
+  end
+  local token = dict:get("__token") or ""
+
+  -- Collect every non-zero counter and reset it for the next window.
+  local reports = {}
+  for _, key in ipairs(dict:get_keys(0)) do
+    if key ~= "__endpoint" and key ~= "__token" then
+      local count = tonumber(dict:get(key)) or 0
+      if count > 0 then
+        local rule_id, status = key:match("^(%d+):(%w+)$")
+        if rule_id then
+          table.insert(reports, {
+            rule_id = tonumber(rule_id),
+            status = status,
+            count = count,
+          })
+          dict:set(key, 0)
+        end
+      end
+    end
+  end
+
+  if #reports == 0 then
+    return
+  end
+
+  -- Fire-and-forget: a failed flush must never affect traffic.
+  local ok, err = pcall(function()
+    local httpc = require("resty.http").new()
+    httpc:set_timeout(2000)
+    local _, req_err = httpc:request_uri(endpoint, {
+      method = "POST",
+      headers = {
+        ["Content-Type"] = "application/json",
+        ["X-Stats-Token"] = token,
+      },
+      body = cjson.encode({ reports = reports }),
+      ssl_verify = false,
+    })
+    if req_err then
+      core.log.error("cache-normalizer stats flush failed: ", req_err)
+    end
+    httpc:close()
+  end)
+
+  if not ok then
+    core.log.error("cache-normalizer stats flush error: ", tostring(err))
+  end
+end
+
+local function schedule_flush()
+  local ok, err = ngx.timer.at(STATS_FLUSH_INTERVAL, function(premature)
+    if premature then
+      return
+    end
+    flush_stats()
+    schedule_flush()
+  end)
+
+  if not ok then
+    core.log.error("cache-normalizer failed to schedule stats flush: ", err)
+  end
+end
+
+function _M.init_worker()
+  if not ngx.shared[STATS_DICT] then
+    core.log.error(
+      "cache-normalizer: shared dict '",
+      STATS_DICT,
+      "' not found; add it to nginx_config.http.custom_lua_shared_dict"
+    )
+    return
+  end
+  schedule_flush()
 end
 
 function _M.log(conf, ctx)
@@ -159,41 +255,20 @@ function _M.log(conf, ctx)
     return
   end
 
-  local endpoint = conf.stats_endpoint
-  local token = conf.stats_token or ""
-  local rule_id = conf.rule_id
+  local dict = ngx.shared[STATS_DICT]
+  if not dict then
+    return
+  end
 
-  -- Fire-and-forget: never block or break the request on reporting failures.
-  local ok, err = ngx.timer.at(0, function(premature)
-    if premature then
-      return
-    end
+  -- Remember where to send the next flush. All rules in this project share
+  -- the same endpoint/token, so overwriting on every request is harmless.
+  dict:set("__endpoint", conf.stats_endpoint)
+  dict:set("__token", conf.stats_token or "")
 
-    local ok_pcall, res_err = pcall(function()
-      local httpc = require("resty.http").new()
-      httpc:set_timeout(2000)
-      local _, req_err = httpc:request_uri(endpoint, {
-        method = "POST",
-        headers = {
-          ["Content-Type"] = "application/json",
-          ["X-Stats-Token"] = token,
-        },
-        body = cjson.encode({ rule_id = rule_id, status = status }),
-        ssl_verify = false,
-      })
-      if req_err then
-        core.log.error("cache-normalizer stats report failed: ", req_err)
-      end
-      httpc:close()
-    end)
-
-    if not ok_pcall then
-      core.log.error("cache-normalizer stats reporter error: ", tostring(res_err))
-    end
-  end)
-
-  if not ok then
-    core.log.error("cache-normalizer failed to create stats timer: ", err)
+  local key = tostring(conf.rule_id) .. ":" .. status
+  local _, incr_err = dict:incr(key, 1, 0)
+  if incr_err then
+    core.log.error("cache-normalizer stats buffer increment failed: ", incr_err)
   end
 end
 

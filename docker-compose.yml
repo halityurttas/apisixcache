@@ -14,7 +14,7 @@ services:
     volumes:
       - etcd-data:/etcd-data
     ports:
-      - "2379:2379"
+      - "127.0.0.1:2379:2379" # etcd client — local only
     healthcheck:
       test: ["CMD", "etcdctl", "endpoint", "health"]
       interval: 5s
@@ -29,9 +29,13 @@ services:
     depends_on:
       etcd:
         condition: service_healthy
+    environment:
+      APISIX_ADMIN_KEY: ${APISIX_ADMIN_KEY:-edd1c9f034335f136f87ad84b625c8f1}
     ports:
-      - "9080:9080" # data plane (gateway)
-      - "9180:9180" # admin API
+      - "9080:9080" # data plane (gateway) — public, clients hit this
+      - "127.0.0.1:9181:9180" # admin API — local only (9180 is often taken on host)
+    volumes:
+      - apisix-cache-data:/tmp/disk_cache_one
     networks:
       - apisix-cache
 
@@ -53,7 +57,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin12345}
       APISIX_ADMIN_API_URL: http://apisix:9180/apisix/admin
-      APISIX_ADMIN_KEY: edd1c9f034335f136f87ad84b625c8f1
+      APISIX_ADMIN_KEY: ${APISIX_ADMIN_KEY:-edd1c9f034335f136f87ad84b625c8f1}
       APISIX_GATEWAY_URL: http://apisix:9080
       STATS_INGEST_URL: http://app:3333/api/stats/ingest
       STATS_INGEST_TOKEN: ${STATS_INGEST_TOKEN:-oss-stats-token}
@@ -70,3 +74,4 @@ networks:
 
 volumes:
   etcd-data:
+  apisix-cache-data:

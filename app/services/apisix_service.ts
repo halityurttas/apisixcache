@@ -9,7 +9,6 @@ import type CacheRule from '#models/cache_rule'
 export class ApisixService {
   private adminApiUrl = env.get('APISIX_ADMIN_API_URL')
   private adminApiKey = env.get('APISIX_ADMIN_KEY')
-  private gatewayUrl = env.get('APISIX_GATEWAY_URL')
 
   private routeId(rule: CacheRule): string {
     return `cache-rule-${rule.id}`
@@ -29,6 +28,7 @@ export class ApisixService {
       query_fields: rule.queryFields ?? [],
       stats_endpoint: env.get('STATS_INGEST_URL'),
       stats_token: env.get('STATS_INGEST_TOKEN'),
+      generation: rule.generation ?? 1,
     }
 
     // 2. Basic rate limiting (optional)
@@ -51,8 +51,11 @@ export class ApisixService {
        * plane issues PURGE requests using its internal gateway hostname
        * (http://apisix:9080), while clients use the public one — including
        * `$host` would make purge compute a different key and fail with 404.
+       *
+       * `$cache_generation` lets the control plane invalidate every entry for
+       * this rule at once by bumping `generation` on purge.
        */
-      cache_key: ['$uri', '$normalized_cache_key'],
+      cache_key: ['$uri', '$normalized_cache_key', '$cache_generation'],
       cache_method: rule.methods,
       cache_http_status: [200, 301, 302],
       cache_ttl: rule.ttlSeconds,
@@ -127,14 +130,15 @@ export class ApisixService {
   }
 
   /**
-   * Purge the cached response for a rule by sending a PURGE request to the
-   * data plane gateway. Returns the HTTP status of the purge request.
+   * Invalidate every cached entry for a rule by bumping its cache generation
+   * and re-syncing the route. Old entries become unreachable (their key no
+   * longer matches) and expire naturally by TTL.
    */
   async purge(rule: CacheRule): Promise<{ ok: boolean; status: number }> {
-    const response = await fetch(`${this.gatewayUrl}${rule.endpointPattern}`, {
-      method: 'PURGE',
-    })
+    rule.generation = (rule.generation ?? 1) + 1
+    await rule.save()
 
-    return { ok: response.ok, status: response.status }
+    const synced = await this.syncRoute(rule)
+    return { ok: synced, status: synced ? 200 : 502 }
   }
 }
