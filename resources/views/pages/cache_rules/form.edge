@@ -21,33 +21,43 @@
       })
         <div class="form-grid">
           @field.root({ name: 'name' })
-            @!field.label({ text: 'Name' })
-            @!input.control({ type: 'text', value: rule?.name, placeholder: 'Flight search cache' })
-            @!field.error()
+            <div class="field">
+              @!field.label({ text: 'Name' })
+              @!input.control({ type: 'text', value: rule?.name, placeholder: 'Flight search cache' })
+              @!field.error()
+            </div>
           @end
 
           @field.root({ name: 'endpointPattern' })
-            @!field.label({ text: 'Endpoint pattern' })
-            @!input.control({ type: 'text', value: rule?.endpointPattern, placeholder: '/v1/flights/search' })
-            @!field.error()
+            <div class="field">
+              @!field.label({ text: 'Endpoint pattern' })
+              @!input.control({ type: 'text', value: rule?.endpointPattern, placeholder: '/v1/flights/search' })
+              @!field.error()
+            </div>
           @end
 
           @field.root({ name: 'upstreamUrl' })
-            @!field.label({ text: 'Upstream URL' })
-            @!input.control({ type: 'text', value: rule?.upstreamUrl, placeholder: 'https://api.example.com' })
-            @!field.error()
+            <div class="field">
+              @!field.label({ text: 'Upstream URL' })
+              @!input.control({ type: 'text', value: rule?.upstreamUrl, placeholder: 'https://api.example.com' })
+              @!field.error()
+            </div>
           @end
 
           @field.root({ name: 'ttlSeconds' })
-            @!field.label({ text: 'TTL (seconds)' })
-            @!input.control({ type: 'number', value: String(rule?.ttlSeconds ?? 300) })
-            @!field.error()
+            <div class="field">
+              @!field.label({ text: 'TTL (seconds)' })
+              @!input.control({ type: 'number', value: String(rule?.ttlSeconds ?? 300) })
+              @!field.error()
+            </div>
           @end
 
           @field.root({ name: 'rateLimitRps' })
-            @!field.label({ text: 'Rate limit (req/s, optional)' })
-            @!input.control({ type: 'number', value: rateLimitValue, placeholder: 'e.g. 50' })
-            @!field.error()
+            <div class="field">
+              @!field.label({ text: 'Rate limit (req/s, optional)' })
+              @!input.control({ type: 'number', value: rateLimitValue, placeholder: 'e.g. 50' })
+              @!field.error()
+            </div>
           @end
         </div>
 
@@ -65,38 +75,46 @@
 
         <div class="form-grid">
           @field.root({ name: 'allowedBodyFields' })
-            @!field.label({ text: 'Allowed body fields (comma-separated, optional)' })
-            @!input.control({ type: 'text', value: allowedBodyValue, placeholder: 'origin, destination, date' })
-            @!field.error()
-            <span class="hint">Only these JSON body fields will be part of the cache key. Leave empty to hash the full body.</span>
+            <div class="field">
+              @!field.label({ text: 'Allowed body fields (comma-separated, optional)' })
+              @!input.control({ type: 'text', value: allowedBodyValue, placeholder: 'origin, destination, date' })
+              @!field.error()
+              <span class="hint">Only these JSON body fields will be part of the cache key. Leave empty to hash the full body.</span>
+            </div>
           @end
 
           @field.root({ name: 'queryFields' })
-            @!field.label({ text: 'Query fields (comma-separated, optional)' })
-            @!input.control({ type: 'text', value: queryFieldsValue, placeholder: 'origin, date' })
-            @!field.error()
-            <span class="hint">Only these query params will be part of the cache key. Leave empty to use the full query string.</span>
+            <div class="field">
+              @!field.label({ text: 'Query fields (comma-separated, optional)' })
+              @!input.control({ type: 'text', value: queryFieldsValue, placeholder: 'origin, date' })
+              @!field.error()
+              <span class="hint">Only these query params will be part of the cache key. Leave empty to use the full query string.</span>
+            </div>
           @end
         </div>
 
         <div class="form-grid">
           @field.root({ name: 'cacheLock' })
-            @!field.label({ text: 'Cache lock (single flight)' })
-            <select name="cacheLock">
-              <option value="true" {{ cacheLockValue === 'true' ? 'selected' : '' }}>Enabled</option>
-              <option value="false" {{ cacheLockValue === 'false' ? 'selected' : '' }}>Disabled</option>
-            </select>
-            @!field.error()
-            <span class="hint">Prevents thundering herd: only one request reaches the upstream on a cache miss.</span>
+            <div class="field">
+              @!field.label({ text: 'Cache lock (single flight)' })
+              <select name="cacheLock">
+                <option value="true" {{ cacheLockValue === 'true' ? 'selected' : '' }}>Enabled</option>
+                <option value="false" {{ cacheLockValue === 'false' ? 'selected' : '' }}>Disabled</option>
+              </select>
+              @!field.error()
+              <span class="hint">Prevents thundering herd: only one request reaches the upstream on a cache miss.</span>
+            </div>
           @end
 
           @field.root({ name: 'isActive' })
-            @!field.label({ text: 'Status' })
-            <select name="isActive">
-              <option value="true" {{ isActiveValue === 'true' ? 'selected' : '' }}>Active</option>
-              <option value="false" {{ isActiveValue === 'false' ? 'selected' : '' }}>Inactive</option>
-            </select>
-            @!field.error()
+            <div class="field">
+              @!field.label({ text: 'Status' })
+              <select name="isActive">
+                <option value="true" {{ isActiveValue === 'true' ? 'selected' : '' }}>Active</option>
+                <option value="false" {{ isActiveValue === 'false' ? 'selected' : '' }}>Inactive</option>
+              </select>
+              @!field.error()
+            </div>
           @end
         </div>
 

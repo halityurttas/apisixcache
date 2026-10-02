@@ -59,6 +59,11 @@ nginx_config:
     custom_lua_shared_dict:
       # Buffer for batched hit/miss telemetry (see cache-normalizer.lua).
       stats_buffer: 10m
+  http_server_location_configuration_snippet: |
+    # Cache upstream responses even when they carry Cache-Control: private
+    # or Set-Cookie (some APIs set these conservatively even for public
+    # data). Without this, nginx's proxy_cache refuses to store them.
+    proxy_ignore_headers Cache-Control Expires Set-Cookie;
 
 # Only the plugins required by this project are enabled.
 # NOTE: providing this list replaces the default plugin set, so every plugin
@@ -66,4 +71,5 @@ nginx_config:
 plugins:
   - cache-normalizer
   - proxy-cache
+  - proxy-rewrite
   - limit-req

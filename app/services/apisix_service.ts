@@ -63,6 +63,17 @@ export class ApisixService {
       hide_cache_headers: false,
     }
 
+    // 4. Map the friendly gateway endpoint to the upstream's real path, when
+    //    the upstream URL contains one. APISIX proxies the original request
+    //    URI by default, so without this a rule like
+    //    "/havadurumu" -> "https://host/tahmin/il-ve-ilceler.aspx" would be
+    //    forwarded to "https://host/havadurumu" and 404.
+    if (node.path && node.path !== '/') {
+      plugins['proxy-rewrite'] = {
+        uri: node.path,
+      }
+    }
+
     return {
       id: this.routeId(rule),
       name: this.routeId(rule),
@@ -84,13 +95,16 @@ export class ApisixService {
   }
 
   /**
-   * Parse an upstream URL into an APISIX node descriptor.
+   * Parse an upstream URL into an APISIX node descriptor plus its path.
+   * The path is kept so the gateway can rewrite the friendly endpoint
+   * (e.g. /havadurumu) to the upstream's real path (e.g.
+   * /tahmin/il-ve-ilceler.aspx) via the `proxy-rewrite` plugin.
    */
-  private parseUpstream(url: string): { scheme: 'http' | 'https'; host: string } {
+  private parseUpstream(url: string): { scheme: 'http' | 'https'; host: string; path: string } {
     const parsed = new URL(url)
     const scheme = parsed.protocol.replace(':', '') as 'http' | 'https'
     const port = parsed.port || (scheme === 'https' ? 443 : 80)
-    return { scheme, host: `${parsed.hostname}:${port}` }
+    return { scheme, host: `${parsed.hostname}:${port}`, path: parsed.pathname }
   }
 
   /**
